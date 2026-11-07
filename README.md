@@ -161,6 +161,8 @@ Windows 启动失败时会通过原生对话框显示具体错误。若出现 `S
 
 参见[中文开发指南](<./docs/DEVELOPMENT.zh.md>)或[英文开发指南](<./docs/DEVELOPMENT.md>)。功能详情见[在线文档](https://dshtauri.mintlify.site)。
 
+RPM 构建、发布与安装见 [RPM 打包说明](docs/RPM.md)。
+
 ## 说明
 
 > [!WARNING]

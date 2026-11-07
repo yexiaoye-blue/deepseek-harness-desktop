@@ -1,0 +1,27 @@
+%global debug_package %{nil}
+%global __os_install_post %{nil}
+
+Name: @NAME@
+Version: @VERSION@
+Release: @RELEASE@
+Summary: Desktop application for DeepSeek Harness (dsh)
+License: LicenseRef-DSH-Tauri
+URL: https://github.com/dsh-tauri/deepseek-harness-desktop
+ExclusiveArch: x86_64 aarch64
+AutoReqProv: no
+@DEPENDS@
+Conflicts: dsh-tauri-beta, deepseek-harness-desktop
+
+%description
+Community RPM build of DSH Tauri, including the pinned Electron runtime.
+
+%install
+mkdir -p "%{buildroot}"
+cp -a "@PAYLOAD@/." "%{buildroot}/"
+
+%files
+%defattr(-,root,root,-)
+/usr/bin/@BINARY@
+"/usr/lib/@PRODUCT@"
+"/usr/share/applications/@PRODUCT@.desktop"
+/usr/share/icons/hicolor/*/apps/@BINARY@.png
