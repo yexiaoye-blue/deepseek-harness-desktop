@@ -5,6 +5,7 @@ pub mod deep_link;
 #[cfg(unix)]
 pub mod login_path;
 pub mod payload;
+pub mod pet_drag;
 #[cfg(all(windows, any(not(debug_assertions), test)))]
 pub(crate) mod single_instance;
 pub mod shell;
