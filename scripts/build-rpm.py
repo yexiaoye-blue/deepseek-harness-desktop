@@ -161,19 +161,22 @@ def verify(root, source, arch, release, destination, sha):
         for line in ['Name=' + meta['product'], 'StartupWMClass=' + meta['binary'], 'Icon=' + meta['binary']]:
             if line not in desktop:
                 raise ValueError('RPM_DESKTOP_INVALID: ' + line)
+        expected_machine = {'x86_64': 62, 'aarch64': 183}[arch]
         highest, count = (0, 0), 0
-        for file in Path(temp).rglob('*'):
-            if not file.is_file() or file.is_symlink():
-                continue
-            with file.open('rb') as stream:
-                header = stream.read(20)
-            if header[:4] != b'\x7fELF':
-                continue
-            if len(header) != 20 or header[4:6] != b'\x02\x01' or struct.unpack('<H', header[18:20])[0] != {'x86_64': 62, 'aarch64': 183}[arch]:
-                raise ValueError('RPM_ELF_ARCH_INVALID: ' + str(file.relative_to(temp)))
-            count += 1
-            output = subprocess.check_output(['readelf', '--version-info', '--wide', str(file)], text=True)
-            highest = max(highest, glibc_requirement(output))
+        checked_roots = [Path(temp) / 'usr/bin', resource / 'runtime']
+        for root in checked_roots:
+            for file in root.rglob('*'):
+                if not file.is_file() or file.is_symlink():
+                    continue
+                with file.open('rb') as stream:
+                    header = stream.read(20)
+                if header[:4] != b'\x7fELF':
+                    continue
+                if len(header) != 20 or header[4:6] != b'\x02\x01' or struct.unpack('<H', header[18:20])[0] != expected_machine:
+                    raise ValueError('RPM_ELF_ARCH_INVALID: ' + str(file.relative_to(temp)))
+                count += 1
+                output = subprocess.check_output(['readelf', '--version-info', '--wide', str(file)], text=True, stderr=subprocess.DEVNULL)
+                highest = max(highest, glibc_requirement(output))
         if not count or highest == (0, 0) or highest > (2, 35):
             raise ValueError('RPM_GLIBC_INVALID: ' + repr((count, highest)))
     dest = Path(destination)

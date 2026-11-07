@@ -185,6 +185,21 @@ Version definition section '.gnu.version_d' contains 1 entry:
                     rpm.verify(self.root, output, platform.machine(), '2.github.42', destination, 'a' * 40)
                 self.assertFalse(destination.exists())
 
+    def test_optional_foreign_frontend_native_module_does_not_fail_runtime_check(self):
+        self.fixture()
+        foreign = self.tauri / 'resources/node_modules/@tailwindcss/oxide-linux-arm64-gnu/tailwindcss-oxide.linux-arm64-gnu.node'
+        foreign.parent.mkdir(parents=True)
+        header = bytearray(64)
+        header[:6] = b'\x7fELF\x02\x01'
+        header[18:20] = (183 if platform.machine() == 'x86_64' else 62).to_bytes(2, 'little')
+        foreign.write_bytes(header)
+        output, destination = self.work / 'optional', self.work / 'optional-dist'
+        rpm.build(self.root, '2.github.42', output)
+        with contextlib.redirect_stdout(io.StringIO()):
+            rpm.verify(self.root, output, platform.machine(), '2.github.42', destination, 'b' * 40)
+        data = json.loads((destination / ('BUILD-rpm-' + platform.machine() + '.json')).read_text())
+        self.assertEqual(data['elf_files_checked'], 2)
+
     def test_real_rpm_verification_publishes_checked_payload_and_checksum(self):
         self.fixture()
         output, destination = self.work / 'rpms', self.work / 'dist'
