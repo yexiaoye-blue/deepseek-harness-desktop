@@ -1,0 +1,44 @@
+name: Sync Upstream Main
+
+on:
+  schedule:
+    - cron: '17 18 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: sync-upstream-main
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    name: Fast-forward main
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Fetch fork and upstream
+        run: |
+          git init --quiet .
+          git remote add origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git remote add upstream https://github.com/dsh-tauri/deepseek-harness-desktop.git
+          git fetch --quiet origin main
+          git fetch --quiet upstream main
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Fast-forward when possible
+        run: |
+          fork=$(git rev-parse origin/main)
+          upstream=$(git rev-parse upstream/main)
+          if [ "$fork" = "$upstream" ]; then
+            echo 'main 已与上游一致。'
+            exit 0
+          fi
+          if ! git merge-base --is-ancestor "$fork" "$upstream"; then
+            echo '::error::本地 main 含有上游没有的提交，已停止自动同步。'
+            exit 1
+          fi
+          git push --quiet origin "$upstream:refs/heads/main"
+          echo "main 已快进到 $upstream。"
