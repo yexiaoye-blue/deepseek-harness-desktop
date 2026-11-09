@@ -92,6 +92,11 @@ class PackagingTest(unittest.TestCase):
         helper = resource / 'runtime' / runtime.name / 'chrome-sandbox'
         self.assertEqual(helper.stat().st_mode & 0o7777, 0o4755)
         self.assertEqual((payload / 'usr/bin/deepseek-harness-desktop').stat().st_mode & 0o777, 0o755)
+        desktop = (payload / 'usr/share/applications/DSH Tauri.desktop').read_text().splitlines()
+        self.assertIn('Name=DSH Tauri', desktop)
+        self.assertIn('StartupWMClass=DSH Tauri', desktop)
+        self.assertIn('Icon=deepseek-harness-desktop', desktop)
+        self.assertNotIn('StartupWMClass=deepseek-harness-desktop', desktop)
 
     def test_missing_sandbox_stops_packaging(self):
         runtime = self.fixture()
@@ -131,7 +136,7 @@ for (const platform of ['linux', 'darwin']) {
   vm.runInNewContext(source, context);
   assert.equal(context.originalRan, true);
   if (platform === 'linux') {
-    assert.deepEqual(calls, [['name', 'DSH Tauri'], ['desktop', 'DSH Tauri.desktop'], ['switch', 'class', 'deepseek-harness-desktop']]);
+    assert.deepEqual(calls, [['name', 'DSH Tauri'], ['desktop', 'DSH Tauri.desktop']]);
     assert.equal(env.ELECTRON_RS_APP_NAME, 'DSH Tauri');
     let icon;
     created({}, { setIcon: value => { icon = value; } });

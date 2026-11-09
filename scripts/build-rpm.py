@@ -9,7 +9,7 @@ import subprocess
 import tempfile
 
 DEPENDENCIES = ['gtk3', 'libappindicator-gtk3', 'alsa-lib', 'nss', 'mesa-libgbm', 'libdrm', 'libX11', 'libXcomposite', 'libXdamage', 'libXrandr', 'libXtst', 'libXScrnSaver', 'cups-libs', 'dbus-libs', 'at-spi2-atk', 'pango', 'glib2', 'openssl-libs', 'zenity']
-MARKER = '/* dsh-rpm-linux-branding:v1 */'
+MARKER = '/* dsh-rpm-linux-branding:v2 */'
 
 
 def identity(root, release):
@@ -43,7 +43,7 @@ def brand(entry, product):
         return
     if 'require("electron")' not in original and "require('electron')" not in original:
         raise ValueError('RPM_RUNTIME_INVALID: unrecognized Electron entry')
-    settings = json.dumps({'name': product, 'desktopFile': product + '.desktop', 'wmClass': 'deepseek-harness-desktop'})
+    settings = json.dumps({'name': product, 'desktopFile': product + '.desktop'})
     bootstrap = r''';(() => {
   if (process.platform !== 'linux') return;
   const { app } = require('electron');
@@ -53,7 +53,6 @@ def brand(entry, product):
   process.env.ELECTRON_RS_APP_NAME = identity.name;
   app.setName(identity.name);
   app.setDesktopName(identity.desktopFile);
-  app.commandLine.appendSwitch('class', identity.wmClass);
   const icon = path.resolve(__dirname, '../../icons/app.png');
   if (fs.existsSync(icon)) app.on('browser-window-created', (_event, window) => window.setIcon(icon));
 })();
@@ -96,7 +95,7 @@ def stage(root, destination, release):
     applications.mkdir(parents=True)
     (applications / (meta['product'] + '.desktop')).write_text('\n'.join([
         '[Desktop Entry]', 'Categories=Development;', 'Comment=Desktop application for DeepSeek Harness (dsh)',
-        'Exec=' + meta['binary'], 'StartupWMClass=' + meta['binary'], 'Icon=' + meta['binary'],
+        'Exec=' + meta['binary'], 'StartupWMClass=' + meta['product'], 'Icon=' + meta['binary'],
         'Name=' + meta['product'], 'Terminal=false', 'Type=Application', 'MimeType=x-scheme-handler/dsh;', '',
     ]))
     return meta
@@ -158,7 +157,7 @@ def verify(root, source, arch, release, destination, sha):
         if not entries or not all(entry.read_text().startswith(MARKER) for entry in entries):
             raise ValueError('RPM_BRANDING_MISSING: runtime identity not installed')
         desktop = (Path(temp) / 'usr/share/applications' / (meta['product'] + '.desktop')).read_text().splitlines()
-        for line in ['Name=' + meta['product'], 'StartupWMClass=' + meta['binary'], 'Icon=' + meta['binary']]:
+        for line in ['Name=' + meta['product'], 'StartupWMClass=' + meta['product'], 'Icon=' + meta['binary']]:
             if line not in desktop:
                 raise ValueError('RPM_DESKTOP_INVALID: ' + line)
         expected_machine = {'x86_64': 62, 'aarch64': 183}[arch]
