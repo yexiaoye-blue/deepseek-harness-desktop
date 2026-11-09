@@ -28,6 +28,7 @@ on:
           - macos-x86_64
           - windows
           - linux
+          - linux-rpm
 
 permissions:
   contents: write
@@ -115,8 +116,8 @@ jobs:
           - **macOS (Apple Silicon)**: 下载 `aarch64.dmg`
           - **macOS (Intel)**: 下载 `x64.dmg`
           - **Windows**: 下载 `.exe`
-          - **Linux (x64)**: 下载 `.AppImage` 或 `.deb`（基于 Ubuntu 22.04 构建）
-          - **Linux (ARM64)**: 下载 `aarch64.AppImage` 或 `arm64.deb`（基于 Ubuntu 22.04 构建，GLIBC 符号上限 2.35）
+          - **Linux (x64)**: 下载 `.AppImage`、`.deb` 或 `.rpm`（基于 Ubuntu 22.04 构建）
+          - **Linux (ARM64)**: 下载 `aarch64.AppImage`、`arm64.deb` 或 `aarch64.rpm`（基于 Ubuntu 22.04 构建，GLIBC 符号上限 2.35）
           - **Android**: 桌面端发布后追加 `.apk`；未配置签名密钥时使用开发证书，仅供评估
           - **iOS（Testflight）**: 打开 [TestFlight 邀请链接](https://testflight.apple.com/join/kYXkpnp1)，通过 beta 测试安装
           - **iOS（IPA）**: 桌面端发布后追加 `_unsigned.ipa`；需自行签名，不能直接安装
@@ -179,20 +180,35 @@ jobs:
       TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
       TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
 
+  build-rpm:
+    name: Build RPM Artifacts
+    needs: prepare
+    if: >-
+      needs.prepare.result == 'success' &&
+      (github.event_name != 'workflow_dispatch' ||
+       inputs.platform_filter == 'all' ||
+       inputs.platform_filter == 'linux' ||
+       inputs.platform_filter == 'linux-rpm')
+    uses: ./.github/workflows/build-rpm.yml
+    with:
+      source_ref: ${{ needs.prepare.outputs.source_ref }}
+
   # 单一 writer 下载全部成功构建的产物，一次性上传并发布 Release。
   finalize:
     name: Publish GitHub Release
-    needs: [prepare, build-macos, build-windows, build-linux]
+    needs: [prepare, build-macos, build-windows, build-linux, build-rpm]
     if: >-
       always() && needs.prepare.result == 'success' &&
       ((github.event_name != 'workflow_dispatch' &&
         needs.build-macos.result == 'success' &&
         needs.build-windows.result == 'success' &&
-        needs.build-linux.result == 'success') ||
+        needs.build-linux.result == 'success' &&
+        needs.build-rpm.result == 'success') ||
        (github.event_name == 'workflow_dispatch' &&
         (needs.build-macos.result == 'success' || needs.build-macos.result == 'skipped') &&
         (needs.build-windows.result == 'success' || needs.build-windows.result == 'skipped') &&
-        (needs.build-linux.result == 'success' || needs.build-linux.result == 'skipped')))
+        (needs.build-linux.result == 'success' || needs.build-linux.result == 'skipped') &&
+        (needs.build-rpm.result == 'success' || needs.build-rpm.result == 'skipped')))
     runs-on: ubuntu-latest
     steps:
       - name: Download build outputs

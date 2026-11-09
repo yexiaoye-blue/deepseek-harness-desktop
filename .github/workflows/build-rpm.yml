@@ -1,0 +1,118 @@
+name: Build RPM
+
+on:
+  workflow_call:
+    inputs:
+      source_ref:
+        required: true
+        type: string
+  workflow_dispatch:
+  push:
+    branches: [main, 'feature/**']
+    paths:
+      - .github/workflows/build-rpm.yml
+      - .github/actions/setup-node-pnpm/action.yml
+      - scripts/build-rpm.py
+      - scripts/test_rpm_packaging.py
+      - packaging/rpm/**
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rpm-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: RPM (${{ matrix.arch }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x86_64
+            runner: ubuntu-22.04
+          - arch: aarch64
+            runner: ubuntu-22.04-arm
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 100
+    env:
+      CI: 'true'
+      DSH_DISTRO_MANAGED: github-rpm
+      RPM_RELEASE: 2.github.${{ github.run_id }}
+    steps:
+      - name: Checkout requested source
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.source_ref || github.sha }}
+          persist-credentials: false
+      - name: Initialize pinned runtime submodules
+        run: |
+          git config submodule.source/deepseek-harness.update none
+          git submodule sync -- crates/tauri-runtime-electron crates/electron-rs crates/tauri-plugin-notifications
+          for module in crates/tauri-runtime-electron crates/electron-rs crates/tauri-plugin-notifications; do
+            sha=$(git rev-parse "HEAD:$module")
+            url=$(git config -f .gitmodules --get "submodule.$module.url")
+            rm -rf "$module"
+            git init --quiet "$module"
+            git -C "$module" remote add origin "$url"
+            git -C "$module" fetch --depth 1 origin "$sha"
+            git -C "$module" checkout --detach FETCH_HEAD
+          done
+      - name: Setup Node.js and pnpm
+        uses: ./.github/actions/setup-node-pnpm
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/desktop/src-tauri -> target
+          shared-key: github-rpm-${{ matrix.arch }}
+          cache-on-failure: true
+      - name: Install build and RPM inspection tools
+        run: |
+          sudo apt-get update -o Acquire::Retries=3
+          sudo apt-get install -y build-essential libgtk-3-dev libappindicator3-dev librsvg2-dev patchelf libssl-dev libx11-dev libxtst-dev libdbus-1-dev libbz2-dev rpm binutils libarchive-tools
+      - name: Check RPM packaging contracts
+        run: python3 -B scripts/test_rpm_packaging.py
+      - name: Install pinned frontend dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Build application from this checkout
+        run: pnpm tauri build --no-bundle
+      - name: Package and verify RPM
+        env:
+          RPM_ARCH: ${{ matrix.arch }}
+          RPM_OUTPUT_DIR: ${{ runner.temp }}/dsh-rpm-${{ matrix.arch }}
+        run: |
+          python3 -B scripts/build-rpm.py build --source "$RPM_OUTPUT_DIR" --release "$RPM_RELEASE"
+          source_sha=$(git rev-parse HEAD)
+          python3 -B scripts/build-rpm.py verify --source "$RPM_OUTPUT_DIR" --release "$RPM_RELEASE" --arch "$RPM_ARCH" --sha "$source_sha"
+      - name: Verify installation on Fedora 43
+        run: |
+          docker run --rm --volume "$PWD/dist/rpm:/packages:ro" fedora:43 bash -euo pipefail -c '
+            dnf install -y /packages/*.rpm
+            rpm -q dsh-tauri
+            ldd /usr/bin/deepseek-harness-desktop > /tmp/native-libs
+            cat /tmp/native-libs
+            if grep -q "not found" /tmp/native-libs; then exit 1; fi
+            runtime=$(find "/usr/lib/DSH Tauri/runtime" -type f \( -name "DSH Tauri" -o -name electron \) -print -quit)
+            test -n "$runtime"
+            ldd "$runtime" > /tmp/electron-libs
+            cat /tmp/electron-libs
+            if grep -q "not found" /tmp/electron-libs; then exit 1; fi
+            helpers=$(find "/usr/lib/DSH Tauri/runtime" -type f -name chrome-sandbox -perm -4000 -user root)
+            test -n "$helpers"
+          '
+      - name: Preserve RPM after a failed check
+        if: failure()
+        uses: actions/upload-artifact@v6
+        with:
+          name: unverified-rpm-${{ matrix.arch }}
+          path: ${{ runner.temp }}/dsh-rpm-${{ matrix.arch }}/**/*.rpm
+          if-no-files-found: ignore
+          retention-days: 1
+      - name: Upload verified RPM and source metadata
+        uses: actions/upload-artifact@v6
+        with:
+          name: release-rpm-${{ matrix.arch }}
+          path: dist/rpm/*
+          if-no-files-found: error
+          retention-days: 7
