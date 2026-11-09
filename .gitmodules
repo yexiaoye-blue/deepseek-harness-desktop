@@ -3,10 +3,10 @@
 	url = https://github.com/hairyf/tauri-plugin-notifications
 [submodule "crates/tauri-runtime-electron"]
 	path = crates/tauri-runtime-electron
-	url = https://github.com/hairyf/tauri-runtime-electron
+	url = https://github.com/yexiaoye-blue/tauri-runtime-electron
 [submodule "crates/electron-rs"]
 	path = crates/electron-rs
-	url = https://github.com/hairyf/electron-rs
+	url = https://github.com/yexiaoye-blue/electron-rs
 [submodule "source/deepseek-harness"]
 	path = source/deepseek-harness
 	url = https://github.com/deepseek-ai/deepseek-harness
