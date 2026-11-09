@@ -16,10 +16,21 @@ const HOST_JS: &str = r#"
 const { app, BrowserWindow, Menu, screen, ipcMain } = require('electron')
 const net = require('node:net')
 const path = require('node:path')
+const fs = require('node:fs')
 const args = process.argv.slice(process.argv.indexOf('--') + 1)
 const read = (name) => { const i = args.indexOf(name); return i >= 0 ? args[i + 1] : '' }
 const url = read('--url')
 const port = Number(read('--connect'))
+const appName = read('--app-name')
+const desktopFile = read('--desktop-file')
+const wmClass = read('--wm-class')
+const icon = read('--icon')
+if (appName) {
+  process.env.ELECTRON_RS_APP_NAME = appName
+  app.setName(appName)
+}
+if (desktopFile) app.setDesktopName(desktopFile)
+if (wmClass) app.commandLine.appendSwitch('class', wmClass)
 let win
 let socket
 const send = (value) => { if (socket && !socket.destroyed) socket.write(JSON.stringify(value) + '\n') }
@@ -66,6 +77,7 @@ app.whenReady().then(() => {
     width: 296, height: 209, show: false, frame: false, transparent: true, resizable: false,
     minimizable: false, maximizable: false, fullscreenable: false, skipTaskbar: true,
     alwaysOnTop: true, focusable: false, hasShadow: false, type: 'toolbar', backgroundColor: '#00000000',
+    ...(icon && fs.existsSync(icon) ? { icon } : {}),
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'), contextIsolation: true, sandbox: true, nodeIntegration: false,
     },
@@ -157,14 +169,25 @@ impl Host {
         let mut command = Command::new(&electron);
         command
             .arg("--ozone-platform=x11")
-            .arg("--remote-debugging-port=9228")
             .arg(format!("--user-data-dir={}", profile.display()))
             .arg(&host_js)
             .arg("--")
             .arg("--url")
             .arg(url)
             .arg("--connect")
-            .arg(port.to_string())
+            .arg(port.to_string());
+        let product = env!("DSH_PRODUCT_NAME");
+        command
+            .arg("--app-name")
+            .arg(product)
+            .arg("--desktop-file")
+            .arg(format!("{product}.desktop"))
+            .arg("--wm-class")
+            .arg("deepseek-harness-desktop");
+        if let Some(icon) = pet_icon(&electron) {
+            command.arg("--icon").arg(icon);
+        }
+        command
             .env_remove("ELECTRON_RUN_AS_NODE")
             .env_remove("WAYLAND_DISPLAY")
             .env("GDK_BACKEND", "x11")
@@ -385,6 +408,15 @@ fn electron_binary() -> Result<PathBuf, String> {
         return Ok(bundled);
     }
     electron_rs::electron_binary(dir).map_err(|e| e.to_string())
+}
+
+fn pet_icon(electron: &Path) -> Option<PathBuf> {
+    let packaged = electron.parent()?.join("../../icons/app.png");
+    if packaged.is_file() {
+        return Some(packaged);
+    }
+    let dev = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("icons/icon.png");
+    dev.is_file().then_some(dev)
 }
 
 #[cfg(test)]
