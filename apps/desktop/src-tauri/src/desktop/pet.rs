@@ -239,6 +239,30 @@ impl Worker {
         let p = self.app.cursor_position().map_err(|e| e.to_string())?;
         Ok(Point::new(p.x.round() as i32, p.y.round() as i32))
     }
+    fn drag_bounds(&self) -> Option<Bounds> {
+        if let Some(host) = &self.x11 {
+            let (x, y, width, height) = host.screen_bounds().ok()?;
+            let (window_width, window_height) = host.content_size().ok()?;
+            return Some(Bounds::for_window(x, y, width, height, window_width, window_height));
+        }
+        let pointer = self.pointer().ok()?;
+        let monitors = self.app.available_monitors().ok()?;
+        let monitor = monitors
+            .iter()
+            .find(|monitor| contains_monitor(monitor, pointer))
+            .or_else(|| monitors.iter().min_by_key(|monitor| monitor_gap(monitor, pointer)))?;
+        let origin = monitor.position();
+        let size = monitor.size();
+        let outer = self.window()?.outer_size().ok()?;
+        Some(Bounds::for_window(
+            origin.x,
+            origin.y,
+            i32::try_from(size.width).unwrap_or(i32::MAX),
+            i32::try_from(size.height).unwrap_or(i32::MAX),
+            outer.width,
+            outer.height,
+        ))
+    }
     fn handle(
         &mut self,
         request: Request,
@@ -520,6 +544,7 @@ impl Worker {
         let actual = self.actual()?;
         let pointer = self.pointer()?;
         let at = self.start.elapsed().as_millis() as u64;
+        let bounds = if action == "move" { self.drag_bounds() } else { None };
         let Some(session) = self.session.as_mut() else {
             return Ok(());
         };
@@ -528,7 +553,7 @@ impl Worker {
                 self.persist = None;
                 session.press_at(at, pointer, actual)
             }
-            "move" => session.pointer_moved(at, pointer, actual),
+            "move" => session.pointer_moved_within(at, pointer, actual, bounds),
             "release" | "cancel" => session.release(at, pointer, actual),
             _ => return Err("PET_POINTER_ACTION_INVALID".into()),
         };
@@ -807,4 +832,35 @@ impl Worker {
         )
         .map_err(|e| e.to_string())
     }
+}
+
+fn contains_monitor(monitor: &tauri::Monitor, point: Point) -> bool {
+    let origin = monitor.position();
+    let size = monitor.size();
+    point.x >= origin.x
+        && point.y >= origin.y
+        && i64::from(point.x) < i64::from(origin.x) + i64::from(size.width)
+        && i64::from(point.y) < i64::from(origin.y) + i64::from(size.height)
+}
+
+fn monitor_gap(monitor: &tauri::Monitor, point: Point) -> i64 {
+    let origin = monitor.position();
+    let size = monitor.size();
+    let right = i64::from(origin.x) + i64::from(size.width);
+    let bottom = i64::from(origin.y) + i64::from(size.height);
+    let dx = if i64::from(point.x) < i64::from(origin.x) {
+        i64::from(origin.x) - i64::from(point.x)
+    } else if i64::from(point.x) >= right {
+        i64::from(point.x) - right + 1
+    } else {
+        0
+    };
+    let dy = if i64::from(point.y) < i64::from(origin.y) {
+        i64::from(origin.y) - i64::from(point.y)
+    } else if i64::from(point.y) >= bottom {
+        i64::from(point.y) - bottom + 1
+    } else {
+        0
+    };
+    dx.saturating_mul(dx).saturating_add(dy.saturating_mul(dy))
 }
