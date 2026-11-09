@@ -881,6 +881,12 @@ async fn ensure_inner(
     // 把「档案目录权限不可写」这个真正要修的问题掩盖掉。与孤儿卸载「任何失败
     // 只记告警」的约定一致；安装失败分支同样忽略该错误。
     remove_legacy_profile_module_fallback_best_effort(&profile);
+    let (pet, need): (Vec<_>, Vec<_>) = need.into_iter()
+        .partition(|(_, name, _)| name == "dsh-pet-lite");
+    if !pet.is_empty() {
+        materialize_internal_links(app_handle, &profile, &pet)
+            .map_err(|error| format!("INTERNAL_PET_LINK_FAILED: {error}"))?;
+    }
     if need.is_empty() {
         return Ok(());
     }

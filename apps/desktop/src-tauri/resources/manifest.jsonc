@@ -73,6 +73,12 @@
     ],
     "built-in": [
       {
+        "id": "dsh-pet-lite",
+        "spec": "dsh-pet-lite",
+        "name": "DSH Pet",
+        "repo": "https://github.com/hairyf/dsh-pet-lite"
+      },
+      {
         "id": "dsh-taiwind",
         "spec": "dsh-taiwind",
         "name": "DSH Tailwind",
@@ -193,16 +199,6 @@
         "name": "DSH Market",
         "repo": "https://github.com/dsh-market/dsh-market",
         "description": "The plugin market inside DeepSeek Harness — browse, search, one-click install · DSH 可视化插件市场",
-        "recommended": false,
-        "checked": false,
-        "version": "latest"
-      },
-      {
-        "id": "dsh-pet-lite",
-        "spec": "dsh-pet-lite",
-        "name": "DSH Pet Lite",
-        "description": "轻量桌宠插件：设置页分区、会话活动驱动的动画，以及一个透明置顶的桌宠窗口。 ｜ Lightweight desktop pet with a settings section, session-activity animations, and a transparent always-on-top window.",
-        "repo": "https://github.com/hairyf/dsh-pet-lite",
         "recommended": false,
         "checked": false,
         "version": "latest"
