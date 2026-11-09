@@ -1256,6 +1256,7 @@ mod macos_bundle_tests {
 
 pub fn handler() -> impl Fn(Invoke<ElectronRuntime>) -> bool + Send + Sync + 'static {
     let handler: fn(Invoke<ElectronRuntime>) -> bool = tauri::generate_handler![
+        crate::desktop::pet::pet_native,
         crate::desktop::window::host_harness_document,
         crate::desktop::window::begin_harness_restart,
         crate::desktop::window::get_harness_restart,
@@ -1377,7 +1378,9 @@ pub fn handler() -> impl Fn(Invoke<ElectronRuntime>) -> bool + Send + Sync + 'st
     ];
     move |invoke| {
         let webview = invoke.message.webview_ref();
-        let allowed = if webview.label() == webview.window().label() {
+        let allowed = if webview.label() == "pet" {
+            invoke.message.command() == "pet_native"
+        } else if webview.label() == webview.window().label() {
             crate::desktop::window::require_shell(webview).is_ok()
         } else {
             webview.label().starts_with("harness-")
@@ -1642,7 +1645,8 @@ pub fn builder() -> tauri::Builder<ElectronRuntime> {
         .unwrap_or(false);
     #[cfg(not(target_os = "macos"))]
     let in_app_bundle = true;
-    let builder = builder.manage(NativeNotificationsAvailable(in_app_bundle));
+    let builder = builder.manage(NativeNotificationsAvailable(in_app_bundle))
+        .manage(crate::desktop::pet::PetHost::default());
     let builder = if in_app_bundle {
         builder.plugin(tauri_plugin_notifications::init())
     } else {

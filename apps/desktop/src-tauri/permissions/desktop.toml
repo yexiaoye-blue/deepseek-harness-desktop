@@ -2,6 +2,7 @@
 identifier = "allow-shell-commands"
 description = "Desktop shell commands."
 commands.allow = [
+  "pet_native",
   "host_harness_document",
   "begin_harness_restart",
   "get_harness_restart",
@@ -137,3 +138,8 @@ commands.allow = [
   "get_force_xwayland",
   "set_force_xwayland",
 ]
+
+[[permission]]
+identifier = "allow-pet-commands"
+description = "Owned pet window input and lifecycle."
+commands.allow = ["pet_native"]

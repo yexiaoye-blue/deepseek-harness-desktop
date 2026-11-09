@@ -1,0 +1,79 @@
+{
+  "name": "dsh-pet-lite",
+  "type": "module",
+  "version": "0.3.0",
+  "private": false,
+  "description": "DeepSeek 内置桌宠：由桌面宿主统一管理透明窗口、输入和拖动。",
+  "author": "Hairy <wwu710632@gmail.com>",
+  "license": "MIT",
+  "homepage": "https://github.com/hairyf/dsh-pet-lite#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/hairyf/dsh-pet-lite.git"
+  },
+  "bugs": "https://github.com/hairyf/dsh-pet-lite/issues",
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "deepseek-harness",
+    "desktop-pet",
+    "pet",
+    "electron",
+    "cordis"
+  ],
+  "sideEffects": false,
+  "exports": {
+    ".": "./dist/index.js",
+    "./client": "./dist/client.cjs",
+    "./package.json": "./package.json"
+  },
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "LICENSE.md",
+    "THIRD_PARTY_NOTICES.md",
+    "assets",
+    "cordis.patch.yml",
+    "dist",
+    "src/main.css"
+  ],
+  "dsh": {
+    "client": {
+      "inject": [
+        "@deepseek-ai/dsh-client-locale",
+        "@deepseek-ai/dsh-client-ui-layout",
+        "@deepseek-ai/dsh-client-ui-settings"
+      ],
+      "platform": "web",
+      "external": [
+        "dsh-tauri/client",
+        "dsh-tauri-ui/client"
+      ]
+    },
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "taiwind": "src/main.css"
+  },
+  "engines": {
+    "dsh": ">=0.2.2-rc.1"
+  },
+  "scripts": {
+    "dev": "tsdown --watch",
+    "typecheck": "tsc --noEmit",
+    "build": "tsdown"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "catalog:tauri",
+    "dsh-pet-component": "catalog:",
+    "dsh-taiwind": "catalog:",
+    "dsh-tauri": "workspace:*",
+    "dsh-tauri-ui": "workspace:*",
+    "fflate": "catalog:"
+  },
+  "devDependencies": {
+    "dsh-tauri-config": "workspace:*",
+    "tsdown": "catalog:pet-build"
+  }
+}

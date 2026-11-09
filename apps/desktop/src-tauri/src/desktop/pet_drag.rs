@@ -1,9 +1,10 @@
 //! 桌宠窗口的单一位置写入者。
 //!
-//! Codex 在 macOS 上会先尝试 performWindowDrag。那个接口只存在于 darwin，
-//! Linux 必须走程序定位。鼠标监听只把样本交到这里；窗口坐标只由
+//! Codex 在 macOS 上会先尝试 performWindowDrag。那个接口只存在于 darwin。
+//! X11 与 Windows 走程序定位。鼠标监听只把样本交到这里；窗口坐标只由
 //! Effect::SetPosition 写出。拖动期间持久化、抛射和自动布局都不写出，
-//! 松手后再各执行一次。原生 Wayland 不能绝对定位时进入 Phase::Constrained，
+//! 松手后再各执行一次。原生 Wayland 不能绝对定位，Linux 的 start_dragging
+//! 也没有实现，所以按下只请求激活，移动交给合成器。置顶和抛射不可用，
 //! PET_OVERLAY_UNSUPPORTED 只记录一次。
 
 use std::collections::VecDeque;
@@ -16,9 +17,9 @@ const THROW_REST_PX_PER_SEC: i32 = 40;
 const MAX_SAMPLES: usize = 64;
 
 pub const OVERLAY_UNSUPPORTED_MESSAGE: &str = concat!(
-    "PET_OVERLAY_UNSUPPORTED: always-on-top and absolute positioning are unavailable ",
-    "on a native Wayland session; drag and throw are disabled. ",
-    "Enable the XWayland option and restart to restore them."
+    "PET_OVERLAY_UNSUPPORTED: absolute positioning and throw are unavailable ",
+    "on a native Wayland session. Drag is owned by the compositor, and floating order is requested. ",
+    "Enable the XWayland option and restart to restore placement and throw."
 );
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -44,7 +45,7 @@ impl BackendCaps {
     pub const fn wayland_constrained() -> Self {
         Self {
             absolute_position: false,
-            always_on_top: false,
+            always_on_top: true,
         }
     }
     const fn can_position(self) -> bool {
@@ -113,6 +114,7 @@ pub enum Effect {
     WarnOverlayUnsupported,
     SetAlwaysOnTop(bool),
     BeginSystemDrag,
+    Raise,
 }
 
 impl Effect {
@@ -199,7 +201,9 @@ impl Controller {
     pub fn press(&mut self, at_ms: u64, pointer: Point, window: Point) -> Vec<Effect> {
         if !self.caps.can_position() {
             self.phase = Phase::Constrained;
-            return self.warn_once();
+            let mut effects = self.warn_once();
+            effects.push(Effect::Raise);
+            return effects;
         }
         if self.phase == Phase::Dragging {
             return Vec::new();
@@ -397,7 +401,7 @@ impl Controller {
         self.phase = Phase::Constrained;
         vec![
             Effect::WarnOverlayUnsupported,
-            Effect::SetAlwaysOnTop(false),
+            Effect::SetAlwaysOnTop(true),
         ]
     }
 
@@ -464,6 +468,24 @@ impl PetWindowSpec {
             independent_of_main: true,
         }
     }
+
+    /// Wayland 不能把无焦点工具窗口留在普通窗口上面。按下必须能激活，
+    /// 否则点击会把焦点还给主窗口，宠物随之沉到下一层。
+    pub const fn wayland_surface() -> Self {
+        Self {
+            transparent: true,
+            frame: false,
+            shadow: false,
+            resizable: false,
+            minimizable: false,
+            maximizable: false,
+            fullscreenable: false,
+            skip_taskbar: true,
+            always_on_top: true,
+            focusable: true,
+            independent_of_main: true,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -490,7 +512,11 @@ impl PetSession {
         let effects = motion.activate();
         (
             Self {
-                spec: PetWindowSpec::independent(caps.can_position()),
+                spec: if caps.can_position() {
+                    PetWindowSpec::independent(true)
+                } else {
+                    PetWindowSpec::wayland_surface()
+                },
                 display: PetDisplay {
                     visible: true,
                     position,
@@ -508,6 +534,13 @@ impl PetSession {
     }
     pub fn phase(&self) -> Phase {
         self.motion.phase()
+    }
+    pub fn set_throw_enabled(&mut self, enabled: bool) {
+        self.motion.throw_enabled = enabled;
+    }
+    pub fn press_at(&mut self, at_ms: u64, pointer: Point, actual: Point) -> Vec<Effect> {
+        self.display.position = actual;
+        self.motion.press(at_ms, pointer, actual)
     }
     pub fn on_main_window(&mut self, minimized: bool, hidden: bool) -> PetDisplay {
         let _ = self.motion.main_window_changed(minimized, hidden);
@@ -587,11 +620,9 @@ mod tests {
             Point::new(100, 80),
         );
         assert!(effects.contains(&Effect::SetAlwaysOnTop(true)));
-        assert!(
-            !effects
-                .iter()
-                .any(|effect| matches!(effect, Effect::BeginSystemDrag))
-        );
+        assert!(!effects
+            .iter()
+            .any(|effect| matches!(effect, Effect::BeginSystemDrag)));
         session
     }
     fn positions(effects: &[Effect]) -> Vec<Point> {
@@ -666,19 +697,17 @@ mod tests {
         );
         assert!(session.layout().is_empty());
         assert!(session.motion.persist().is_empty());
-        assert!(
-            session
-                .step_throw(
-                    Bounds {
-                        min_x: 0,
-                        min_y: 0,
-                        max_x: 500,
-                        max_y: 500
-                    },
-                    16
-                )
-                .is_empty()
-        );
+        assert!(session
+            .step_throw(
+                Bounds {
+                    min_x: 0,
+                    min_y: 0,
+                    max_x: 500,
+                    max_y: 500
+                },
+                16
+            )
+            .is_empty());
         let released = session.release(32, Point::new(8, 0), Point::new(108, 80));
         assert!(positions(&released).is_empty());
         assert_eq!(
@@ -699,7 +728,7 @@ mod tests {
     }
 
     #[test]
-    fn wayland_disables_drag_and_throw_and_warns_once() {
+    fn wayland_activates_on_press_without_programmatic_drag_or_throw() {
         let (mut session, effects) = PetSession::open(
             Platform::Linux,
             BackendCaps::wayland_constrained(),
@@ -710,12 +739,15 @@ mod tests {
             effects,
             vec![
                 Effect::WarnOverlayUnsupported,
-                Effect::SetAlwaysOnTop(false)
+                Effect::SetAlwaysOnTop(true)
             ]
         );
         assert_eq!(session.phase(), Phase::Constrained);
-        assert!(!session.spec().always_on_top && session.spec().independent_of_main);
-        assert!(session.press(0, Point::new(3, 3)).is_empty());
+        let spec = session.spec();
+        assert!(spec.focusable && spec.always_on_top && spec.independent_of_main);
+        assert!(!spec.frame && spec.skip_taskbar);
+        assert_eq!(session.press(0, Point::new(3, 3)), vec![Effect::Raise]);
+        assert_eq!(session.press(10, Point::new(8, 4)), vec![Effect::Raise]);
         for step in 1_i32..30 {
             assert!(
                 session
@@ -729,24 +761,20 @@ mod tests {
                 OVERLAY_UNSUPPORTED_MESSAGE
             );
         }
-        assert!(
-            session
-                .release(1_000, Point::new(40, 0), Point::new(0, 0))
-                .is_empty()
-        );
-        assert!(
-            session
-                .step_throw(
-                    Bounds {
-                        min_x: 0,
-                        min_y: 0,
-                        max_x: 100,
-                        max_y: 100
-                    },
-                    16
-                )
-                .is_empty()
-        );
+        assert!(session
+            .release(1_000, Point::new(40, 0), Point::new(0, 0))
+            .is_empty());
+        assert!(session
+            .step_throw(
+                Bounds {
+                    min_x: 0,
+                    min_y: 0,
+                    max_x: 100,
+                    max_y: 100
+                },
+                16
+            )
+            .is_empty());
         assert_eq!(session.display().position, Point::new(0, 0));
     }
 
@@ -806,11 +834,9 @@ mod tests {
         assert!(session.system_drag_failed().is_empty());
         let moved = session.pointer_moved(32, Point::new(14, 1), Point::new(10, 10));
         assert_eq!(positions(&moved), vec![Point::new(23, 10)]);
-        assert!(
-            !moved
-                .iter()
-                .any(|effect| matches!(effect, Effect::BeginSystemDrag))
-        );
+        assert!(!moved
+            .iter()
+            .any(|effect| matches!(effect, Effect::BeginSystemDrag)));
     }
 
     #[test]
@@ -823,11 +849,9 @@ mod tests {
             vec![Point::new(400, 0)]
         );
         assert!(session.layout().is_empty());
-        assert!(
-            session
-                .release(200, Point::new(400, 0), Point::new(400, 0))
-                .is_empty()
-        );
+        assert!(session
+            .release(200, Point::new(400, 0), Point::new(400, 0))
+            .is_empty());
         assert_eq!(session.phase(), Phase::Thrown);
         let bounds = Bounds {
             min_x: 0,
@@ -876,16 +900,14 @@ mod tests {
             spec.skip_taskbar && !spec.focusable && spec.independent_of_main && spec.always_on_top
         );
         assert!(session.press(0, before.position).is_empty());
-        assert!(
-            session
-                .pointer_moved(
-                    16,
-                    Point::new(before.position.x + 2, before.position.y),
-                    before.position
-                )
-                .iter()
-                .all(|effect| !matches!(effect, Effect::UpdateInputShape))
-        );
+        assert!(session
+            .pointer_moved(
+                16,
+                Point::new(before.position.x + 2, before.position.y),
+                before.position
+            )
+            .iter()
+            .all(|effect| !matches!(effect, Effect::UpdateInputShape)));
         assert_eq!(session.note_frame(1), vec![Effect::UpdateInputShape]);
         assert!(session.note_frame(1).is_empty());
         assert_eq!(session.note_frame(2), vec![Effect::UpdateInputShape]);
@@ -905,10 +927,9 @@ mod tests {
             1
         );
         assert!(motion.activate().is_empty());
-        assert!(
-            motion
-                .press(0, Point::new(1, 1), Point::new(2, 2))
-                .is_empty()
+        assert_eq!(
+            motion.press(0, Point::new(1, 1), Point::new(2, 2)),
+            vec![Effect::Raise]
         );
     }
 }

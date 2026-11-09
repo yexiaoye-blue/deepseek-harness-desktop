@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "dependencies": {
+    "dsh-pet-lite": "workspace:*",
     "dsh-taiwind": "catalog:",
     "dsh-tauri": "workspace:*",
     "dsh-tauri-archive": "workspace:*",

@@ -1,0 +1,14 @@
+export const PLUGIN_ID = 'dsh-pet-lite'
+export const ROUTE_PREFIX = '/dsh-pet-lite'
+export const SESSION_STREAM_PATH = '/session/stream'
+export const DESKTOP_OPEN_URL = 'dsh://open'
+export const SETTINGS_PATH = '/settings'
+export const CATALOG_PATH = '/catalog'
+export const ASSET_PATH = '/asset'
+export const SSE_KEEPALIVE_MS = 15000
+export const SSE_RETRY_MS = 1000
+export const SSE_STATE_LOST_COMMENT = 'state-lost'
+export const PET_DEFAULT_SIZE = 100
+export const PET_SIZE_MIN = 50
+export const PET_SIZE_MAX = 200
+export const PET_SIZE_STEP = 5
