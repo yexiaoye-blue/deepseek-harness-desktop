@@ -148,6 +148,15 @@ it('rejects the missing WASI fallback outside the oxide root entry', () => {
   ${join('@tailwindcss/oxide', 'lib/index.js')} -> ./tailwindcss-oxide.wasi.cjs`)
 })
 
+
+it('ignores unresolved requires inside an unused browser bundle', () => {
+  const { root, dir, names } = fixture('pngjs', 'module.exports = 1')
+  writeFileSync(join(dir, 'browser.js'), "module.exports = require('./interlace')")
+  expect(() => pruneDeployment(root, names)).not.toThrow()
+  expect(existsSync(join(dir, 'index.js'))).toBe(true)
+  expect(existsSync(join(dir, 'browser.js'))).toBe(true)
+})
+
 it.each([
   ['static import', 'import value from \'./tailwindcss-oxide.wasi.cjs\''],
   ['dynamic import', 'import(\'./tailwindcss-oxide.wasi.cjs\')'],

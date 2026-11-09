@@ -562,6 +562,7 @@ function pruneOrphanPackages(root: string, pluginNames: readonly string[]): stri
 /** 裁剪可能删掉入口之外的内部模块（如 `require('./common')`），逐条验证相对说明符仍可解析。 */
 function verifyRelativeSpecifiers(root: string): number {
   const index = deploymentIndex(root)
+  const reachable = reachableRuntimeFiles(index)
   const missing: string[] = []
   let checked = 0
   for (const dir of index.dirs) {
@@ -570,7 +571,7 @@ function verifyRelativeSpecifiers(root: string): number {
       continue
     }
     for (const file of collectFiles(dir)) {
-      if (!RUNTIME_FILE_PATTERN.test(file)) {
+      if (!RUNTIME_FILE_PATTERN.test(file) || !reachable.has(file)) {
         continue
       }
       const optionalRequire = index.manifests.get(dir)?.name === '@tailwindcss/oxide' && file === join(dir, 'index.js')
@@ -602,6 +603,47 @@ function verifyRelativeSpecifiers(root: string): number {
     throw new Error(`PLUGIN_DEPLOY_RELATIVE_MISSING:\n  ${missing.join('\n  ')}`)
   }
   return checked
+}
+
+/** 只校验从 package.json 入口可达的文件。包根上的 browser bundle 不参与运行。 */
+function reachableRuntimeFiles(index: DeploymentIndex): Set<string> {
+  const files = new Set<string>()
+  const queue: string[] = []
+  const enqueue = (target: string): void => {
+    if (!existsSync(target)) {
+      return
+    }
+    if (statSync(target).isDirectory()) {
+      for (const file of collectFiles(target)) {
+        if (RUNTIME_FILE_PATTERN.test(file)) {
+          queue.push(file)
+        }
+      }
+      return
+    }
+    if (RUNTIME_FILE_PATTERN.test(target)) {
+      queue.push(target)
+    }
+  }
+  for (const dir of index.dirs) {
+    for (const target of entryTargets(index.manifests.get(dir) as PackageManifest)) {
+      enqueue(relativeTarget(dir, `./${target}`) ?? join(dir, target))
+    }
+  }
+  while (queue.length > 0) {
+    const file = queue.pop() as string
+    if (files.has(file)) {
+      continue
+    }
+    files.add(file)
+    for (const specifier of relativeSpecifiers(readFileSync(file, 'utf8'))) {
+      const target = relativeTarget(dirname(file), specifier)
+      if (target !== null) {
+        enqueue(target)
+      }
+    }
+  }
+  return files
 }
 
 function verifyDeployedClosure(root: string): void {
