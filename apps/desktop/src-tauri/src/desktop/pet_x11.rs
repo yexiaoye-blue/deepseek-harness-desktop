@@ -23,14 +23,13 @@ const url = read('--url')
 const port = Number(read('--connect'))
 const appName = read('--app-name')
 const desktopFile = read('--desktop-file')
-const wmClass = read('--wm-class')
 const icon = read('--icon')
 if (appName) {
   process.env.ELECTRON_RS_APP_NAME = appName
   app.setName(appName)
 }
+// GNOME 在 ready 前把 app_id 定成桌面文件名。不能再另设 class，否则会退回 electron。
 if (desktopFile) app.setDesktopName(desktopFile)
-if (wmClass) app.commandLine.appendSwitch('class', wmClass)
 let win
 let socket
 const send = (value) => { if (socket && !socket.destroyed) socket.write(JSON.stringify(value) + '\n') }
@@ -181,9 +180,7 @@ impl Host {
             .arg("--app-name")
             .arg(product)
             .arg("--desktop-file")
-            .arg(format!("{product}.desktop"))
-            .arg("--wm-class")
-            .arg("deepseek-harness-desktop");
+            .arg(format!("{product}.desktop"));
         if let Some(icon) = pet_icon(&electron) {
             command.arg("--icon").arg(icon);
         }
@@ -402,12 +399,45 @@ fn read_loop(stream: std::net::TcpStream, pending: Arc<Mutex<HashMap<u64, Sender
 
 fn electron_binary() -> Result<PathBuf, String> {
     let exe = std::env::current_exe().map_err(|e| e.to_string())?;
-    let dir = exe.parent().ok_or("PET_X11_ELECTRON")?;
-    let bundled = dir.join("runtime/linux-x64/electron");
-    if bundled.is_file() {
-        return Ok(bundled);
+    let app_dir = std::env::var_os("APPDIR").map(PathBuf::from);
+    let mut missed = Vec::new();
+    for root in runtime_roots(&exe, env!("DSH_PRODUCT_NAME"), app_dir.as_deref()) {
+        if !root.is_dir() {
+            continue;
+        }
+        match electron_rs::electron_binary(&root) {
+            Ok(binary) => return Ok(binary),
+            Err(error) => missed.push(format!("{}: {error}", root.display())),
+        }
     }
-    electron_rs::electron_binary(dir).map_err(|e| e.to_string())
+    Err(format!(
+        "PET_X11_ELECTRON: no runtime for {}{}",
+        exe.display(),
+        if missed.is_empty() {
+            String::new()
+        } else {
+            format!("; {}", missed.join("; "))
+        }
+    ))
+}
+
+fn runtime_roots(executable: &Path, product: &str, app_dir: Option<&Path>) -> Vec<PathBuf> {
+    let Some(dir) = executable.parent() else {
+        return Vec::new();
+    };
+    let mut roots = vec![
+        dir.join("runtime"),
+        dir.join("resources/runtime"),
+        dir.join("../Resources/runtime"),
+        dir.join("electron"),
+        dir.join("resources/electron"),
+        dir.join("../lib").join(product).join("runtime"),
+    ];
+    if let Some(app_dir) = app_dir {
+        roots.push(app_dir.join("usr/lib").join(product).join("runtime"));
+    }
+    roots.push(Path::new("/usr/lib").join(product).join("runtime"));
+    roots
 }
 
 fn pet_icon(electron: &Path) -> Option<PathBuf> {
@@ -421,7 +451,8 @@ fn pet_icon(electron: &Path) -> Option<PathBuf> {
 
 #[cfg(test)]
 mod tests {
-    use super::separate_from_env;
+    use super::{runtime_roots, separate_from_env};
+    use std::path::{Path, PathBuf};
 
     #[test]
     fn wayland_shell_gets_a_separate_x11_pet_unless_the_shell_is_already_x11() {
@@ -429,5 +460,23 @@ mod tests {
         assert!(separate_from_env(true, "--ozone-platform=wayland"));
         assert!(!separate_from_env(true, "--ozone-platform=wayland --ozone-platform=x11"));
         assert!(!separate_from_env(false, ""));
+    }
+
+    #[test]
+    fn installed_and_dev_builds_find_the_product_runtime_without_hardcoding_x64() {
+        let dev = runtime_roots(
+            Path::new("/work/target/debug/deepseek-harness-desktop"),
+            "DSH Tauri",
+            None,
+        );
+        assert_eq!(dev[0], PathBuf::from("/work/target/debug/runtime"));
+        let installed = runtime_roots(
+            Path::new("/usr/bin/deepseek-harness-desktop"),
+            "DSH Tauri",
+            Some(Path::new("/tmp/AppDir")),
+        );
+        assert!(installed.iter().any(|root| root == Path::new("/usr/lib/DSH Tauri/runtime")));
+        assert!(installed.iter().any(|root| root == Path::new("/tmp/AppDir/usr/lib/DSH Tauri/runtime")));
+        assert!(installed.iter().all(|root| !root.ends_with("linux-x64/electron")));
     }
 }
