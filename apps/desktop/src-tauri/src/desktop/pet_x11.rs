@@ -48,6 +48,10 @@ function handle(message) {
       const area = screen.getDisplayMatching(win.getBounds()).workArea
       result = { x: area.x, y: area.y, width: area.width, height: area.height }
     }
+    else if (method === 'screenBounds') {
+      const area = screen.getDisplayNearestPoint(screen.getCursorScreenPoint()).bounds
+      result = { x: area.x, y: area.y, width: area.width, height: area.height }
+    }
     else if (method === 'setPosition') win.setPosition(Math.round(params.x), Math.round(params.y))
     else if (method === 'setSize') win.setContentSize(Math.max(1, Math.round(params.width)), Math.max(1, Math.round(params.height)))
     else if (method === 'setShape') {
@@ -287,11 +291,10 @@ impl Host {
         self.call("setSize", json!({"width":width,"height":height})).map(|_| ())
     }
     pub fn work_area(&self) -> Result<(i32, i32, i32, i32), String> {
-        let value = self.call("workArea", Value::Null)?;
-        let (x, y) = point(&value)?;
-        let width = value.get("width").and_then(Value::as_i64).unwrap_or(0) as i32;
-        let height = value.get("height").and_then(Value::as_i64).unwrap_or(0) as i32;
-        Ok((x, y, width, height))
+        rect(&self.call("workArea", Value::Null)?)
+    }
+    pub fn screen_bounds(&self) -> Result<(i32, i32, i32, i32), String> {
+        rect(&self.call("screenBounds", Value::Null)?)
     }
     pub fn set_shape(&self, rectangles: &[electron_rs::rpc::Rectangle]) -> Result<(), String> {
         self.call("setShape", json!({"rectangles": rectangles})).map(|_| ())
@@ -340,6 +343,13 @@ fn point(value: &Value) -> Result<(i32, i32), String> {
         value.get("x").and_then(Value::as_i64).ok_or("PET_X11_POINT")? as i32,
         value.get("y").and_then(Value::as_i64).ok_or("PET_X11_POINT")? as i32,
     ))
+}
+
+fn rect(value: &Value) -> Result<(i32, i32, i32, i32), String> {
+    let (x, y) = point(value)?;
+    let width = value.get("width").and_then(Value::as_i64).unwrap_or(0) as i32;
+    let height = value.get("height").and_then(Value::as_i64).unwrap_or(0) as i32;
+    Ok((x, y, width, height))
 }
 
 fn accept_for(listener: &TcpListener, child: &mut Child, timeout: Duration) -> Result<std::net::TcpStream, String> {

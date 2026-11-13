@@ -90,6 +90,25 @@ pub struct Bounds {
     pub max_y: i32,
 }
 
+impl Bounds {
+    pub fn for_window(x: i32, y: i32, width: i32, height: i32, window_width: u32, window_height: u32) -> Self {
+        Self {
+            min_x: x,
+            min_y: y,
+            max_x: x.saturating_add(width).saturating_sub(clamp_i32(i64::from(window_width))),
+            max_y: y.saturating_add(height).saturating_sub(clamp_i32(i64::from(window_height))),
+        }
+    }
+
+    pub fn clamp(self, point: Point) -> Point {
+        Point::new(clamp_axis(point.x, self.min_x, self.max_x), clamp_axis(point.y, self.min_y, self.max_y))
+    }
+}
+
+fn clamp_axis(value: i32, min: i32, max: i32) -> i32 {
+    if max < min { min } else { value.clamp(min, max) }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Phase {
     Idle,
@@ -237,6 +256,16 @@ impl Controller {
     }
 
     pub fn pointer_moved(&mut self, at_ms: u64, pointer: Point, actual: Point) -> Vec<Effect> {
+        self.pointer_moved_within(at_ms, pointer, actual, None)
+    }
+
+    pub fn pointer_moved_within(
+        &mut self,
+        at_ms: u64,
+        pointer: Point,
+        actual: Point,
+        bounds: Option<Bounds>,
+    ) -> Vec<Effect> {
         if !self.caps.can_position() || self.phase == Phase::Constrained {
             return self.warn_once();
         }
@@ -261,7 +290,10 @@ impl Controller {
                 self.offset = actual.saturating_sub(request_pointer);
             }
         }
-        let target = pointer.saturating_add(self.offset);
+        let mut target = pointer.saturating_add(self.offset);
+        if let Some(bounds) = bounds {
+            target = bounds.clamp(target);
+        }
         if target == actual
             || self
                 .last_request
@@ -554,6 +586,17 @@ impl PetSession {
         self.apply_display(&effects);
         effects
     }
+    pub fn pointer_moved_within(
+        &mut self,
+        at_ms: u64,
+        pointer: Point,
+        actual: Point,
+        bounds: Option<Bounds>,
+    ) -> Vec<Effect> {
+        let effects = self.motion.pointer_moved_within(at_ms, pointer, actual, bounds);
+        self.apply_display(&effects);
+        effects
+    }
     pub fn release(&mut self, at_ms: u64, pointer: Point, actual: Point) -> Vec<Effect> {
         let effects = self.motion.release(at_ms, pointer, actual);
         self.apply_display(&effects);
@@ -796,6 +839,44 @@ mod tests {
         }
         assert_eq!(written.last().copied(), Some(Point::new(2_200, 100)));
         assert!(written.iter().any(|position| position.x > 1_920));
+    }
+
+    #[test]
+    fn drag_stops_at_the_screen_edge_and_can_return() {
+        let mut session = linux(false);
+        session.press(0, Point::new(100, 80));
+        let bounds = Bounds::for_window(0, 0, 800, 600, 120, 90);
+        assert_eq!(
+            positions(&session.pointer_moved_within(
+                16,
+                Point::new(2_000, 2_000),
+                Point::new(100, 80),
+                Some(bounds),
+            )),
+            vec![Point::new(680, 510)]
+        );
+        assert!(positions(&session.pointer_moved_within(
+            32,
+            Point::new(2_200, 2_100),
+            Point::new(680, 510),
+            Some(bounds),
+        ))
+        .is_empty());
+        assert_eq!(
+            positions(&session.pointer_moved_within(
+                48,
+                Point::new(140, 90),
+                Point::new(680, 510),
+                Some(bounds),
+            )),
+            vec![Point::new(140, 90)]
+        );
+    }
+
+    #[test]
+    fn a_window_larger_than_the_screen_stays_at_its_origin() {
+        let bounds = Bounds::for_window(10, 20, 100, 80, 400, 300);
+        assert_eq!(bounds.clamp(Point::new(500, 500)), Point::new(10, 20));
     }
 
     #[test]
